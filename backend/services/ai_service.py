@@ -1,8 +1,8 @@
 import json
-from openai import OpenAI
+from google import genai
 from config import settings
 
-client = OpenAI(api_key=settings.OPENAI_API_KEY)
+client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
 SYSTEM_PROMPT = """You are an expert code reviewer and static analysis engine.
 Analyze the provided code and return a JSON response with this exact structure:
@@ -30,25 +30,29 @@ Severity guidelines:
 Return ONLY valid JSON. No markdown, no text outside the JSON."""
 
 def analyze_code(language: str, code: str) -> dict:
-    """Send code to OpenAI and return structured review results."""
+    """Send code to Gemini and return structured review results."""
+
     user_prompt = f"Language: {language}\n\nCode:\n```{language}\n{code}\n```"
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": user_prompt},
-        ],
-        temperature=0.2,
-        max_tokens=3000,
-        response_format={"type": "json_object"},
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=f"{SYSTEM_PROMPT}\n\n{user_prompt}"
     )
 
-    raw    = response.choices[0].message.content
-    result = json.loads(raw)
+    raw = response.text.strip()
+
+    # Remove markdown fences if Gemini adds them
+    if raw.startswith("```json"):
+        raw = raw.replace("```json", "", 1)
+    if raw.startswith("```"):
+        raw = raw.replace("```", "", 1)
+    if raw.endswith("```"):
+        raw = raw[:-3]
+
+    result = json.loads(raw.strip())
 
     return {
         "summary": result.get("summary", "No summary provided."),
-        "score":   max(0, min(100, int(result.get("score", 50)))),
-        "issues":  result.get("issues", []),
+        "score": max(0, min(100, int(result.get("score", 50)))),
+        "issues": result.get("issues", []),
     }
